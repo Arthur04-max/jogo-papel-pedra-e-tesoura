@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Humano vs Bot - Teachable Machine</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            text-align: center;
+            background-color: #1e1e24;
+            color: #fff;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 { color: #4caf50; }
+        .game-container {
+            display: flex;
+            justify-content: center;
+            gap: 40px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+        .player-box, .bot-box {
+            background: #2a2a35;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            min-width: 220px;
+        }
+        button {
+            background-color: #4caf50;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            font-size: 18px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: 0.3s;
+            margin: 20px;
+        }
+        button:hover { background-color: #45a049; }
+        #webcam-container canvas {
+            border: 4px solid #4caf50;
+            border-radius: 8px;
+        }
+        #bot-choice {
+            font-size: 48px;
+            margin: 20px 0;
+        }
+        #result-banner {
+            font-size: 28px;
+            font-weight: bold;
+            margin: 20px;
+            padding: 10px;
+            border-radius: 8px;
+        }
+        .win { color: #4caf50; }
+        .lose { color: #f44336; }
+        .draw { color: #ffeb3b; }
+    </style>
+</head>
+<body>
+
+    <h1>Humano vs Computador</h1>
+    <p>Mostre sua jogada na câmera e clique em "Iniciar Jogo". Depois clique em "GOLPEAR!"</p>
+    
+    <button type="button" id="start-btn" onclick="init()">Iniciar Câmera</button>
+    <button type="button" id="play-btn" onclick="playRound()" style="display:none; background-color: #2196F3;">GOLPEAR!</button>
+
+    <div id="result-banner"></div>
+
+    <div class="game-container">
+        <!-- Lado do jogador -->
+        <div class="player-box">
+            <h2>Você</h2>
+            <div id="webcam-container"></div>
+            <div id="label-container"></div>
+        </div>
+
+        <!-- Lado do Bot -->
+        <div class="bot-box">
+            <h2>Bot</h2>
+            <div id="bot-choice">🤖</div>
+            <div id="bot-label">Aguardando...</div>
+        </div>
+    </div>
+
+    <!-- Scripts do TensorFlow e Teachable Machine -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+
+    <script type="text/javascript">
+        // Insira aqui o link do seu modelo (Ex: "https://withgoogle.com")
+        // Ou mantenha "./my_model/" se os arquivos estiverem na mesma pasta local
+        const URL = "./my_model/"; 
+        
+        let model, webcam, labelContainer, maxPredictions;
+        let currentClassPrediction = "";
+        let classNames = [];
+
+        // Inicializa o modelo e a webcam
+        async function init() {
+            document.getElementById("start-btn").innerText = "Carregando...";
+            
+            const modelURL = URL + "model.json";
+            const metadataURL = URL + "metadata.json";
+
+            model = await tmImage.load(modelURL, metadataURL);
+            maxPredictions = model.getTotalClasses();
+            classNames = model.getClassLabels();
+
+            const flip = true; 
+            webcam = new tmImage.Webcam(220, 220, flip); 
+            await webcam.setup(); 
+            await webcam.play();
+            
+            window.requestAnimationFrame(loop);
+
+            // Ajusta a interface
+            document.getElementById("webcam-container").appendChild(webcam.canvas);
+            document.getElementById("start-btn").style.display = "none";
+            document.getElementById("play-btn").style.display = "inline-block";
+
+            labelContainer = document.getElementById("label-container");
+            for (let i = 0; i < maxPredictions; i++) {
+                labelContainer.appendChild(document.createElement("div"));
+            }
+        }
+
+        async function loop() {
+            webcam.update(); 
+            await predict();
+            window.requestAnimationFrame(loop);
+        }
+
+        // Detecta o que o usuário está mostrando em tempo real
+        async function predict() {
+            const prediction = await model.predict(webcam.canvas);
+            
+            let highestProb = 0;
+            let bestClass = "";
+
+            for (let i = 0; i < maxPredictions; i++) {
+                const prob = prediction[i].probability;
+                labelContainer.childNodes[i].innerHTML = `${prediction[i].className}: ${(prob * 100).toFixed(0)}%`;
+                
+                if (prob > highestProb) {
+                    highestProb = prob;
+                    bestClass = prediction[i].className;
+                }
+            }
+            // Guarda a classe com maior probabilidade atual
+            currentClassPrediction = bestClass;
+        }
+
+        // Lógica da rodada competitiva
+        function playRound() {
+            if (!currentClassPrediction) return;
+
+            // 1. O Bot faz uma escolha aleatória baseada nas classes que existem no seu modelo
+            const randomIndex = Math.floor(Math.random() * classNames.length);
+            const botChoice = classNames[randomIndex];
+
+            // 2. Atualiza o visual do Bot
+            document.getElementById("bot-label").innerText = `Escolha do Bot: ${botChoice}`;
+            displayBotEmoji(botChoice);
+
+            // 3. Determina o vencedor
+            determineWinner(currentClassPrediction, botChoice);
+        }
+
+        // Adiciona emojis dinâmicos para a escolha do bot (opcional - adapte para o seu modelo)
+        function displayBotEmoji(choice) {
+            const botChoiceDiv = document.getElementById("bot-choice");
+            const lowerChoice = choice.toLowerCase();
+            
+            if (lowerChoice.includes("pedra")) botChoiceDiv.innerText = "✊";
+            else if (lowerChoice.includes("papel")) botChoiceDiv.innerText = "✋";
+            else if (lowerChoice.includes("tesoura")) botChoiceDiv.innerText = "✌️";
+            else botChoiceDiv.innerText = "🎮";
+        }
+
+        // Lógica de regras (Exemplo baseado em Pedra, Papel e Tesoura)
+        function determineWinner(player, bot) {
+            const banner = document.getElementById("result-banner");
+            const p = player.toLowerCase();
+            const b = bot.toLowerCase();
+
+            if (p === b) {
+                banner.innerText = "Empate! 😮";
+                banner.className = "draw";
+            } else if (
+                (p.includes("pedra") && b.includes("tesoura")) ||
+                (p.includes("papel") && b.includes("pedra")) ||
+                (p.includes("tesoura") && b.includes("papel"))
+            ) {
+                banner.innerText = `Você Ganhou! 🎉 (${player} ganha de ${bot})`;
+                banner.className = "win";
+            } else {
+                banner.innerText = `Você Perdeu! 🤖 (${bot} ganha de ${player})`;
+                banner.className = "lose";
+            }
+        }
+    </script>
+</body>
+</html>
